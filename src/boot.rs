@@ -1,5 +1,11 @@
 use criome_cozo::CriomeDb;
 
+/// Core world init script — Phase, Dignity, world_schema, VCS relations.
+pub const CORE_WORLD_INIT: &str = include_str!("../schema/core-world-init.cozo");
+
+/// Core world seed script — Phase (3 rows) + Dignity (5 rows).
+pub const CORE_WORLD_SEED: &str = include_str!("../schema/core-world-seed.cozo");
+
 /// Returns true if the statement is only comments (no executable CozoScript).
 pub fn is_comment_only(stmt: &str) -> bool {
     stmt.lines()
@@ -126,9 +132,9 @@ pub fn populate_world_schema(
 
 /// Load core infrastructure relations (Phase, Dignity, world_schema, VCS).
 pub fn core_genesis(db: &CriomeDb) -> Result<(), Box<dyn std::error::Error>> {
-    load_cozo_script(db, include_str!("../schema/core-world-init.cozo"))?;
+    load_cozo_script(db, CORE_WORLD_INIT)?;
     tracing::info!("core relations created");
-    load_cozo_script(db, include_str!("../schema/core-world-seed.cozo"))?;
+    load_cozo_script(db, CORE_WORLD_SEED)?;
     tracing::info!("core seeds loaded");
     Ok(())
 }
