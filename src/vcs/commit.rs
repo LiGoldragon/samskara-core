@@ -238,55 +238,78 @@ impl WorldVcs<'_> {
     }
 
     fn store_commit(&self, hash: &str, parent: &str, input: &CommitInput) -> Result<(), Error> {
-        let script = format!(
-            r#"?[id, parent_id, agent_id, session_id, message, ts, manifest_hash] <- [[
-                "{}", "{}", "{}", "{}", "{}", "{}", "{}"
-            ]]
-            :put world_commit {{ id => parent_id, agent_id, session_id, message, ts, manifest_hash }}"#,
-            Self::esc(hash), Self::esc(parent), Self::esc(input.agent_id),
-            Self::esc(input.session_id), Self::esc(input.message), Self::esc(input.now), Self::esc(hash),
-        );
-        self.db.run_script(&script).map_err(|e| Error::Db { detail: format!("store commit: {e}") })?;
+        use criome_cozo::{DataValue, params_map};
+        let params = params_map(vec![
+            ("id", DataValue::Str(hash.into())),
+            ("parent_id", DataValue::Str(parent.into())),
+            ("agent_id", DataValue::Str(input.agent_id.into())),
+            ("session_id", DataValue::Str(input.session_id.into())),
+            ("message", DataValue::Str(input.message.into())),
+            ("ts", DataValue::Str(input.now.into())),
+            ("manifest_hash", DataValue::Str(hash.into())),
+        ]);
+        self.db.run_script_with(
+            "?[id, parent_id, agent_id, session_id, message, ts, manifest_hash] <- \
+             [[$id, $parent_id, $agent_id, $session_id, $message, $ts, $manifest_hash]] \
+             :put world_commit {id => parent_id, agent_id, session_id, message, ts, manifest_hash}",
+            params,
+        ).map_err(|e| Error::Db { detail: format!("store commit: {e}") })?;
         Ok(())
     }
 
     fn store_manifest(&self, hash: &str, entries: &[(String, usize, String)]) -> Result<(), Error> {
+        use criome_cozo::{DataValue, params_map};
         for (rel, count, content_hash) in entries {
-            let script = format!(
-                r#"?[commit_id, relation_name, row_count, content_hash] <- [[
-                    "{}", "{}", {}, "{}"
-                ]]
-                :put world_manifest {{ commit_id, relation_name => row_count, content_hash }}"#,
-                Self::esc(hash), rel, count, content_hash,
-            );
-            self.db.run_script(&script).map_err(|e| Error::Db { detail: format!("store manifest: {e}") })?;
+            let params = params_map(vec![
+                ("commit_id", DataValue::Str(hash.into())),
+                ("relation_name", DataValue::Str(rel.as_str().into())),
+                ("row_count", DataValue::from(*count as i64)),
+                ("content_hash", DataValue::Str(content_hash.as_str().into())),
+            ]);
+            self.db.run_script_with(
+                "?[commit_id, relation_name, row_count, content_hash] <- \
+                 [[$commit_id, $relation_name, $row_count, $content_hash]] \
+                 :put world_manifest {commit_id, relation_name => row_count, content_hash}",
+                params,
+            ).map_err(|e| Error::Db { detail: format!("store manifest: {e}") })?;
         }
         Ok(())
     }
 
     fn store_snapshot_index(&self, hash: &str, exists: bool, nearest: &str, depth: u32) -> Result<(), Error> {
-        let script = format!(
-            r#"?[commit_id, snapshot_exists, nearest_snapshot_id, delta_depth] <- [[
-                "{}", {}, "{}", {}
-            ]]
-            :put world_snapshot_index {{ commit_id => snapshot_exists, nearest_snapshot_id, delta_depth }}"#,
-            Self::esc(hash), exists, Self::esc(nearest), depth,
-        );
-        self.db.run_script(&script).map_err(|e| Error::Db { detail: format!("store snapshot_index: {e}") })?;
+        use criome_cozo::{DataValue, params_map};
+        let params = params_map(vec![
+            ("commit_id", DataValue::Str(hash.into())),
+            ("snapshot_exists", DataValue::Bool(exists)),
+            ("nearest_snapshot_id", DataValue::Str(nearest.into())),
+            ("delta_depth", DataValue::from(depth as i64)),
+        ]);
+        self.db.run_script_with(
+            "?[commit_id, snapshot_exists, nearest_snapshot_id, delta_depth] <- \
+             [[$commit_id, $snapshot_exists, $nearest_snapshot_id, $delta_depth]] \
+             :put world_snapshot_index {commit_id => snapshot_exists, nearest_snapshot_id, delta_depth}",
+            params,
+        ).map_err(|e| Error::Db { detail: format!("store snapshot_index: {e}") })?;
         Ok(())
     }
 
     fn store_snapshots(&self, hash: &str, data: &[(String, serde_json::Value, usize)]) -> Result<(), Error> {
+        use criome_cozo::{DataValue, params_map};
         for (rel, rows, _) in data {
             let snap = Snapshot::from_rows(rows)?;
-            let script = format!(
-                r#"?[commit_id, relation_name, data, reader_version, byte_count] <- [[
-                    "{}", "{}", "{}", "json-zstd-b64-v1", {}
-                ]]
-                :put world_snapshot {{ commit_id, relation_name => data, reader_version, byte_count }}"#,
-                Self::esc(hash), rel, Self::esc(&snap.encoded), snap.byte_count,
-            );
-            self.db.run_script(&script)?;
+            let params = params_map(vec![
+                ("commit_id", DataValue::Str(hash.into())),
+                ("relation_name", DataValue::Str(rel.as_str().into())),
+                ("data", DataValue::Str(snap.encoded.into())),
+                ("reader_version", DataValue::Str("json-zstd-b64-v1".into())),
+                ("byte_count", DataValue::from(snap.byte_count as i64)),
+            ]);
+            self.db.run_script_with(
+                "?[commit_id, relation_name, data, reader_version, byte_count] <- \
+                 [[$commit_id, $relation_name, $data, $reader_version, $byte_count]] \
+                 :put world_snapshot {commit_id, relation_name => data, reader_version, byte_count}",
+                params,
+            )?;
         }
         Ok(())
     }
@@ -299,6 +322,7 @@ impl WorldVcs<'_> {
         manifest: &[(String, usize, String)],
         data: &[(String, serde_json::Value, usize)],
     ) -> Result<usize, Error> {
+        use criome_cozo::{DataValue, params_map};
         let mut seq = 0;
         let mut count = 0;
 
@@ -323,14 +347,20 @@ impl WorldVcs<'_> {
                 let data_b64 = base64::Engine::encode(
                     &base64::engine::general_purpose::STANDARD, d.row_data.as_bytes(),
                 );
-                let script = format!(
+                let params = params_map(vec![
+                    ("commit_id", DataValue::Str(hash.into())),
+                    ("seq", DataValue::from(seq as i64)),
+                    ("relation_name", DataValue::Str(d.relation_name.as_str().into())),
+                    ("operation", DataValue::Str(d.operation.as_str().into())),
+                    ("row_key", DataValue::Str(key_b64.into())),
+                    ("row_data", DataValue::Str(data_b64.into())),
+                ]);
+                self.db.run_script_with(
                     "?[commit_id, seq, relation_name, operation, row_key, row_data] <- \
-                     [[\"{}\", {}, \"{}\", \"{}\", \"{}\", \"{}\"]] \
-                     :put world_delta {{commit_id, seq => relation_name, operation, row_key, row_data}}",
-                    Self::esc(hash), seq, Self::esc(&d.relation_name),
-                    Self::esc(&d.operation), key_b64, data_b64,
-                );
-                self.db.run_script(&script).map_err(|e| Error::Db { detail: format!("store delta: {e}") })?;
+                     [[$commit_id, $seq, $relation_name, $operation, $row_key, $row_data]] \
+                     :put world_delta {commit_id, seq => relation_name, operation, row_key, row_data}",
+                    params,
+                ).map_err(|e| Error::Db { detail: format!("store delta: {e}") })?;
                 seq += 1;
             }
             count += deltas.len();
@@ -339,10 +369,11 @@ impl WorldVcs<'_> {
     }
 
     fn manifest_hash(&self, commit_id: &str, relation_name: &str) -> String {
-        self.db.run_script(&format!(
-            "?[content_hash] := *world_manifest{{commit_id: \"{commit_id}\", \
-             relation_name: \"{relation_name}\", content_hash}}"
-        ))
+        use criome_cozo::params;
+        self.db.run_script_with(
+            "?[content_hash] := *world_manifest{commit_id: $cid, relation_name: $rel, content_hash}",
+            params([("cid", commit_id), ("rel", relation_name)]),
+        )
         .ok()
         .and_then(|v| {
             v.get("rows")?.as_array()?.first()?.as_array()?.first()
@@ -353,10 +384,11 @@ impl WorldVcs<'_> {
     }
 
     fn load_snapshot(&self, commit_id: &str, relation: &str) -> Result<serde_json::Value, Error> {
-        let result = self.db.run_script(&format!(
-            "?[data] := *world_snapshot{{commit_id: \"{commit_id}\", \
-             relation_name: \"{relation}\", data}}"
-        ))?;
+        use criome_cozo::params;
+        let result = self.db.run_script_with(
+            "?[data] := *world_snapshot{commit_id: $cid, relation_name: $rel, data}",
+            params([("cid", commit_id), ("rel", relation)]),
+        )?;
 
         match result
             .get("rows")
@@ -372,12 +404,12 @@ impl WorldVcs<'_> {
     }
 
     pub fn upsert_head(&self, hash: &str) -> Result<(), Error> {
-        let script = format!(
-            r#"?[commit_id, ref_type, ref_value] <- [["{}", "HEAD", "{}"]]
-            :put world_commit_ref {{ commit_id, ref_type => ref_value }}"#,
-            Self::esc(hash), Self::esc(hash),
-        );
-        self.db.run_script(&script)?;
+        use criome_cozo::{DataValue, params_map};
+        self.db.run_script_with(
+            "?[commit_id, ref_type, ref_value] <- [[$hash, \"HEAD\", $hash]] \
+             :put world_commit_ref {commit_id, ref_type => ref_value}",
+            params_map(vec![("hash", DataValue::Str(hash.into()))]),
+        )?;
         Ok(())
     }
 }
