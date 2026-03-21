@@ -1,0 +1,19 @@
+#── Phase seed ─────────────────────────────────────────────────────────
+
+?[name, glyph, in_world_hash, description] <- [
+  ["manifest", "☉", true,  "Current, active — what IS"],
+  ["becoming", "☽", false, "Staged, proposed — what is being considered"],
+  ["retired",  "♄", false, "Archived, superseded — what WAS"]
+]
+:put Phase { name => glyph, in_world_hash, description }
+
+#── Dignity seed ───────────────────────────────────────────────────────
+
+?[name, rank, description] <- [
+  ["eternal",   0, "Immutable, foundational invariant (nitya)"],
+  ["proven",    1, "Verified through trusted source (siddha)"],
+  ["seen",      2, "Witnessed, observed — default (dṛṣṭa)"],
+  ["uncertain", 3, "Unverified claim (sandeha)"],
+  ["delusion",  4, "Error, unreliable source (bhrama)"]
+]
+:put Dignity { name => rank, description }

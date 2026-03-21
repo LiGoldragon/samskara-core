@@ -1,0 +1,77 @@
+#── Core agent infrastructure relations ─────────────────────────────
+#Every samskara-core agent gets these. Domain-specific relations
+#are added by each agent's own init scripts.
+
+#── Phase + Dignity (lifecycle enums) ──────────────────────────────
+
+:create Phase {
+  name: String =>
+  glyph: String,
+  in_world_hash: Bool,
+  description: String
+}
+
+:create Dignity {
+  name: String =>
+  rank: Int,
+  description: String
+}
+
+#── Self-describing schema ─────────────────────────────────────────
+
+:create world_schema {
+  relation_name: String =>
+  create_script: String,
+  origin: String,
+  phase: String,
+  dignity: String
+}
+
+#── Version control layer ──────────────────────────────────────────
+
+:create world_commit {
+  id: String =>
+  parent_id: String,
+  agent_id: String,
+  session_id: String,
+  message: String,
+  ts: String,
+  manifest_hash: String
+}
+
+:create world_manifest {
+  commit_id: String,
+  relation_name: String =>
+  row_count: Int,
+  content_hash: String
+}
+
+:create world_delta {
+  commit_id: String,
+  seq: Int =>
+  relation_name: String,
+  operation: String,
+  row_key: String,
+  row_data: String
+}
+
+:create world_snapshot {
+  commit_id: String,
+  relation_name: String =>
+  data: String,
+  reader_version: String,
+  byte_count: Int
+}
+
+:create world_snapshot_index {
+  commit_id: String =>
+  snapshot_exists: Bool,
+  nearest_snapshot_id: String,
+  delta_depth: Int
+}
+
+:create world_commit_ref {
+  commit_id: String,
+  ref_type: String =>
+  ref_value: String
+}
