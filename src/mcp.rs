@@ -36,6 +36,21 @@ pub struct RestoreWorldParams {
     pub commit_id: String,
 }
 
+// ── Param types (read-only tools) ────────────────────────────────
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct QueryRulesParams {
+    /// Filter by microtheory (e.g. "rust", "cozo", "nix")
+    #[serde(default)]
+    pub microtheory: Option<String>,
+    /// Filter by rule type (e.g. "pattern", "constraint", "convention")
+    #[serde(default)]
+    pub rule_type: Option<String>,
+    /// Filter by scope (e.g. "global", repo name)
+    #[serde(default)]
+    pub scope: Option<String>,
+}
+
 // ── Standalone tool implementations ──────────────────────────────
 // Agents delegate to these from their own #[tool_router] impls.
 
@@ -144,6 +159,88 @@ pub async fn restore_world(db: Arc<CriomeDb>, commit_id: String) -> String {
 
     match result {
         Ok(Ok(msg)) => msg,
+        Ok(Err(e)) => format!("error: {e}"),
+        Err(e) => format!("error: task join failed: {e}"),
+    }
+}
+
+// ── Immutable (read-only) tool implementations ──────────────────
+
+pub async fn query_immutable(db: Arc<CriomeDb>, script: String) -> String {
+    let result = tokio::task::spawn_blocking(move || {
+        db.run_script_cozo_immutable(&script)
+            .map_err(|e| e.to_string())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(text)) => text,
+        Ok(Err(e)) => format!("error: {e}"),
+        Err(e) => format!("error: task join failed: {e}"),
+    }
+}
+
+pub async fn list_relations_immutable(db: Arc<CriomeDb>) -> String {
+    let result = tokio::task::spawn_blocking(move || {
+        db.run_script_cozo_immutable("::relations")
+            .map_err(|e| e.to_string())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(text)) => text,
+        Ok(Err(e)) => format!("error: {e}"),
+        Err(e) => format!("error: task join failed: {e}"),
+    }
+}
+
+pub async fn describe_relation_immutable(db: Arc<CriomeDb>, name: String) -> String {
+    let result = tokio::task::spawn_blocking(move || {
+        let script = format!("::columns {name}");
+        db.run_script_cozo_immutable(&script)
+            .map_err(|e| e.to_string())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(text)) => text,
+        Ok(Err(e)) => format!("error: {e}"),
+        Err(e) => format!("error: task join failed: {e}"),
+    }
+}
+
+pub async fn query_rules(db: Arc<CriomeDb>, params: QueryRulesParams) -> String {
+    let result = tokio::task::spawn_blocking(move || {
+        let mut conditions = Vec::new();
+
+        if let Some(ref mt) = params.microtheory {
+            conditions.push(format!("microtheory = \"{}\"", mt.replace('"', "\\\"")));
+        }
+        if let Some(ref rt) = params.rule_type {
+            conditions.push(format!("rule_type = \"{}\"", rt.replace('"', "\\\"")));
+        }
+        if let Some(ref scope) = params.scope {
+            conditions.push(format!("scope = \"{}\"", scope.replace('"', "\\\"")));
+        }
+
+        let filter = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", conditions.join(", "))
+        };
+
+        let script = format!(
+            "?[id, compact, rationale, microtheory, rule_type, scope] := \
+             *rule{{id, compact, rationale, microtheory, rule_type, scope}}{filter}"
+        );
+
+        db.run_script_cozo_immutable(&script)
+            .map_err(|e| e.to_string())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(text)) => text,
         Ok(Err(e)) => format!("error: {e}"),
         Err(e) => format!("error: task join failed: {e}"),
     }
