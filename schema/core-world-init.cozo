@@ -22,7 +22,6 @@
 :create world_schema {
   relation_name: String =>
   create_script: String,
-  origin: String,
   phase: String,
   dignity: String
 }

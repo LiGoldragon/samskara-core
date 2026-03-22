@@ -81,12 +81,11 @@ pub fn create_script_for(
 
 /// Populate world_schema by introspecting all relations in the database.
 /// `eternal_relations` is the list of relations that should be marked dignity=eternal.
-/// `contract_relations` is the list of relations with origin=contract.
 pub fn populate_world_schema(
     db: &CriomeDb,
     eternal_relations: &[&str],
-    contract_relations: &[&str],
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use criome_cozo::{DataValue, params_map};
     let relations = db.run_script("::relations")?;
     let rows = relations["rows"]
         .as_array()
@@ -102,7 +101,6 @@ pub fn populate_world_schema(
         }
 
         let script = create_script_for(db, name)?;
-        let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
 
         let dignity = if eternal_relations.contains(&name) {
             "eternal"
@@ -110,20 +108,18 @@ pub fn populate_world_schema(
             "proven"
         };
 
-        let origin = if contract_relations.contains(&name) {
-            "contract"
-        } else {
-            "genesis"
-        };
-
-        let put = format!(
-            r#"?[relation_name, create_script, origin, phase, dignity] <- [[
-                "{}", "{}", "{}", "manifest", "{}"
-            ]]
-            :put world_schema {{ relation_name => create_script, origin, phase, dignity }}"#,
-            esc(name), esc(&script), origin, dignity,
-        );
-        db.run_script(&put)?;
+        let params = params_map(vec![
+            ("relation_name", DataValue::Str(name.into())),
+            ("create_script", DataValue::Str(script.into())),
+            ("phase", DataValue::Str("manifest".into())),
+            ("dignity", DataValue::Str(dignity.into())),
+        ]);
+        db.run_script_with(
+            "?[relation_name, create_script, phase, dignity] <- \
+             [[$relation_name, $create_script, $phase, $dignity]] \
+             :put world_schema {relation_name => create_script, phase, dignity}",
+            params,
+        )?;
     }
 
     tracing::info!("world_schema populated with all relation definitions");
@@ -143,9 +139,8 @@ pub fn core_genesis(db: &CriomeDb) -> Result<(), Box<dyn std::error::Error>> {
 pub fn finalize_genesis(
     db: &CriomeDb,
     eternal_relations: &[&str],
-    contract_relations: &[&str],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    populate_world_schema(db, eternal_relations, contract_relations)?;
+    populate_world_schema(db, eternal_relations)?;
     db.run_script(":create meta { key: String => value: String }")?;
     db.run_script(r#"?[key, value] <- [["schema_version", "1"]] :put meta { key => value }"#)?;
     tracing::info!("genesis complete — meta sentinel written");
